@@ -16,7 +16,7 @@ VibraVis: Specialized Haptic Feedback Eyeglasses
 Adafruit_VL53L7CX vl53l7cx;
 VL53L7CX_ResultsData results;
 
-Adafruuit_DRV2605 motors[MOTOR_COUNT];
+Adafruit_DRV2605 motors[MOTOR_COUNT];
 Audio audio;
 
 unsigned long lastMotorTrigger[MOTOR_COUNT] = {0};
@@ -57,7 +57,7 @@ bool initSensors() {
 
         vl53l7cx.stopRanging();
 
-    } if (!vL53L7cx.initMotionIndicator(64)) {
+    } if (!vl53l7cx.initMotionIndicator(64)) {
       Serial.print(F("Failed to init motion indicator for sensor at index "));
       Serial.println(i);
       allOk = false;
@@ -117,4 +117,54 @@ float calculateApproachSpeed(int sensorIndex, uint16_t currentDistance) {
   previousDistance[sensorIndex] = currentDistance;
   previousReadTime[sensorIndex] = now;
   return speed;
+}
+
+// ---------- Select ONE priority obstacle per cycle ----------
+// Rule: any obstacle within IMMEDIATE_DANGER_MM always wins (nearest of
+// those, if multiple). Otherwise, the fastest-approaching obstacle wins.
+// Returns sensor index, or -1 if nothing needs an alert this cycle.
+int selectPriorityObstacle(uint16_t distances[SENSOR_COUNT], float speeds[SENSOR_COUNT]) {
+  int immediateIndex = -1;
+  int fastestIndex = -1;
+  float fastestSpeed = 0;
+ 
+  for (int i = 0; i < SENSOR_COUNT; i++) {
+    if (distances[i] == 0) continue; // no valid reading this cycle
+ 
+    if (distances[i] < IMMEDIATE_DANGER_MM) {
+      if (immediateIndex == -1 || distances[i] < distances[immediateIndex]) {
+        immediateIndex = i;
+      }
+    }
+ 
+    if (speeds[i] > fastestSpeed) {
+      fastestSpeed = speeds[i];
+      fastestIndex = i;
+    }
+  }
+ 
+  if (immediateIndex != -1) return immediateIndex; // safety threshold overrides
+  return fastestIndex;                              // otherwise, fastest wins
+}
+ 
+// Map a sensor position to its motor zone 
+// Left arm + bottom-left  -> MOTOR_LEFT
+// Right arm + bottom-right -> MOTOR_RIGHT
+// Bridge                   -> MOTOR_CENTER
+MotorZone sensorToMotorZone(int sensorIndex) {
+  switch (sensorIndex) {
+    case SENSOR_LEFT_ARM:
+        return MOTOR_LEFT;
+    case SENSOR_BOTTOM_LEFT:
+      return MOTOR_LEFT;
+      return MOTOR_CENTER; // More intense than the left motor to indicate a left aligned central obstacle 
+    case SENSOR_RIGHT_ARM:
+        return MOTOR_RIGHT;
+    case SENSOR_BOTTOM_RIGHT:
+      return MOTOR_RIGHT;
+      return MOTOR_CENTER; // More intense than the right motor to indicate a right aligned central obstacle
+    case SENSOR_BRIDGE:
+    default:
+      return MOTOR_CENTER;
+  }
 }
