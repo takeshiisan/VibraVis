@@ -168,3 +168,30 @@ MotorZone sensorToMotorZone(int sensorIndex) {
       return MOTOR_CENTER;
   }
 }
+
+void setup() {
+  Serial.begin(115200);
+  Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN);
+ 
+  Serial.println("VibraVis booting...");
+ 
+  if (!initSensors()) {
+    Serial.println("WARNING: one or more sensors failed to init.");
+  }
+  initMotors();
+ 
+  // audio.setPinout(I2S_BCLK, I2S_LRC, I2S_DOUT);
+  // audio.setVolume(15);
+ 
+  Serial.println("VibraVis ready.");
+}
+ 
+void loop() {
+  unsigned long now = millis();
+  if (now - lastPollTime >= SENSOR_POLL_INTERVAL_MS) {
+    lastPollTime = now;
+    processObstacles();
+  }
+ 
+  // audio.loop(); // uncomment once audio wiring/logic is implemented
+}
