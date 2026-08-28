@@ -46,3 +46,9 @@ enum MotorZone {
     MOTOR_RIGHT,
     MOTOR_COUNT
 };
+
+// ======== 12S AUDIO AMPLIFIER (MAX98357A) ========
+
+#define I2S_BCLK 14
+#define I2S_LRC  12
+#define I2S_DOUT 13
