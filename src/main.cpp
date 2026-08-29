@@ -1,8 +1,6 @@
 /* 
 VibraVis: Specialized Haptic Feedback Eyeglasses
---------------------------------------------------
-
-
+*****************************************************
 
 */
 
@@ -10,16 +8,13 @@ VibraVis: Specialized Haptic Feedback Eyeglasses
 #include <Wire.h>
 #include <Adafruit_DRV2605.h>
 #include <Adafruit_VL53L7CX.h>
-#include "Audio.h"
+//#include "Audio.h"
 #include "config.h"
 
 Adafruit_VL53L7CX vl53l7cx;
-VL53L7CX_ResultsData results;
-
 Adafruit_DRV2605 motors[MOTOR_COUNT];
-Audio audio;
 
-unsigned long lastMotorTrigger[MOTOR_COUNT] = {0};
+unsigned long lastMotorTrigger = 0;
 unsigned long lastPollTime = 0;
  
 // Tracks previous distance/time per sensor, used to compute approach speed
@@ -41,66 +36,55 @@ bool initSensors() {
     delay(5);
 
     if (!vl53l7cx.begin(VL53L7CX_DEFAULT_ADDRESS, &Wire, 400000)) {
-      Serial.print(F("Failed to initialize VL53L7CX sensor at index "));
-      Serial.println(i);
-      allOk = false;
-    }
-    // Set 8x8 resolution (64 zones)
-    if (!vl53l7cx.setResolution(64)) {
-      Serial.print(F("Failed to set resolution for sensor at index "));
-      Serial.println(i);
-      allOk = false;
-    } if (!vl53l7cx.setRangingFrequency(30)) {
-      Serial.print(F("Failed to set ranging frequency for sensor at index "));
-      Serial.println(i);
-      allOk = false;
-
-        vl53l7cx.stopRanging();
-
-    } if (!vl53l7cx.initMotionIndicator(64)) {
-      Serial.print(F("Failed to init motion indicator for sensor at index "));
-      Serial.println(i);
-      allOk = false;
-    } if (!vl53l7cx.setMotionDistance(400, 3000)) {
-      Serial.print(F("Failed to set motion distance for sensor at index "));
-      Serial.println(i);
-      allOk = false;
-    } if (!vl53l7cx.startRanging()) {
-      Serial.print(F("Failed to start ranging for sensor at index "));
-      Serial.println(i);
+      Serial.printf("Failed to init sensor %d\n", i);
       allOk = false;
       continue;
-    } else {
-      Serial.print(F("Sensor at index "));
-      Serial.print(i);
-      Serial.println(F(" initialized successfully."));
     }
-  }
-  
+    vl53l7cx.setResolution(64); // 8x8 resolution
+    vl53l7cx.setRangingFrequency(30); // 30HZ
+    vl53l7cx.startRanging();
+    Serial.printf("Sensor %d initialized successfully.\n", i);
   }
   return allOk;
 }
+
 // Initialize the 3 DRV2605L motor drivers 
 void initMotors() {
   for (int i = 0; i < MOTOR_COUNT; i++) {
-    // NOTE: see config.h TODO - DRV2605L address is fixed at 0x5A per
-    // datasheet, these three chips likely need mux routing rather than
-    // distinct I2C addresses. Update this init loop once confirmed.
-    motors[i].begin();
-    motors[i].selectLibrary(1);
-    motors[i].setMode(DRV2605_MODE_INTTRIG); // internal trigger, waveform playback
+    selectMuxChannel(motorMuxMappings[i].muxAddress, motorMuxMappings[i].channel);
+    delay(5);
+
+    if(motors[i].begin()) {
+      motors[i].selectLibrary(1); // select ERM library
+      motors[i].setMode(DRV2605_MODE_INTTRIG); // internal trigger mode
+      Serial.printf("Motor %d initialized successfully.\n", i);
+    } else {
+      Serial.printf("Failed to init motor %d\n", i);
+    }
   }
 }
 
 // Read one sensor's minimum in-range distance
 // Returns 0 if no valid reading or sensor not ready.
 uint16_t readSensorMinDistance(int sensorIndex) {
-  selectMuxChannel(sensorMuxMappings[sensorIndex].muxAddress,
-                    sensorMuxMappings[sensorIndex].channel);
- 
-  // TODO: replace with real Adafruit_VL53L7 data-ready check + read call.
-  // Placeholder returns 0 (no reading) until the real API is wired in.
-  return 0;
+  selectMuxChannel(sensorMuxMappings[sensorIndex].muxAddress, sensorMuxMappings[sensorIndex].channel);
+  
+  if (vl53l7cx.isDataReady()) {
+   VL53L7CX_ResultsData results;
+   vl53l7cx.getRangingData(&results);
+
+   uint16_t minDistance = 65535; // max uint16_t
+   // Scan all 64 zones for closest target
+  for(int j = 0; j < 64; j++) {
+    //Status indicating the measurement validity (5 & 9 means ranging OK
+      if(results.target_status[j] == 5 || results.target_status[j] == 9) {
+        if(results.distance_mm[j] > 0 && results.distance_mm[j] < minDistance) {
+          minDistance = results.distance_mm[j];
+        }
+      }
+    }
+  return (minDistance == 65535) ? 0 : minDistance;
+  }
 }
 
 // Calculate approach speed (mm/s). Positive = approaching. 
@@ -142,30 +126,54 @@ int selectPriorityObstacle(uint16_t distances[SENSOR_COUNT], float speeds[SENSOR
       fastestIndex = i;
     }
   }
- 
+
   if (immediateIndex != -1) return immediateIndex; // safety threshold overrides
   return fastestIndex;                              // otherwise, fastest wins
 }
  
-// Map a sensor position to its motor zone 
-// Left arm + bottom-left  -> MOTOR_LEFT
-// Right arm + bottom-right -> MOTOR_RIGHT
-// Bridge                   -> MOTOR_CENTER
-MotorZone sensorToMotorZone(int sensorIndex) {
-  switch (sensorIndex) {
-    case SENSOR_LEFT_ARM:
-        return MOTOR_LEFT;
-    case SENSOR_BOTTOM_LEFT:
-      return MOTOR_LEFT;
-      return MOTOR_CENTER; // More intense than the left motor to indicate a left aligned central obstacle 
-    case SENSOR_RIGHT_ARM:
-        return MOTOR_RIGHT;
-    case SENSOR_BOTTOM_RIGHT:
-      return MOTOR_RIGHT;
-      return MOTOR_CENTER; // More intense than the right motor to indicate a right aligned central obstacle
-    case SENSOR_BRIDGE:
-    default:
-      return MOTOR_CENTER;
+// Returns a bitmask so multiple motors can be triggered simultaneously if needed.
+uint8_t sensorToMotorMask(int sensorIndex) {
+  switch(sensorIndex) {
+    case SENSOR_LEFT_ARM: return MASK_LEFT;
+    case SENSOR_RIGHT_ARM: return MASK_RIGHT;
+    case SENSOR_BOTTOM_LEFT: return MASK_LEFT | MASK_CENTER; // both left and center motors
+    case SENSOR_BOTTOM_RIGHT: return MASK_RIGHT | MASK_CENTER; // both right and center motors
+    case SENSOR_BRIDGE: default: return MASK_CENTER; // bridge sensor triggers center motor
+  }
+}
+
+void triggerMotor(uint8_t motorMask, uint8_t effectId) {
+  for(int i = 0; i < MOTOR_COUNT; i++) {
+    if(motorMask & (1 << i)) {
+      selectMuxChannel(motorMuxMappings[i].muxAddress, motorMuxMappings[i].channel);
+      motors[i].setWaveform(0, effectId); // set effect
+      motors[i].setWaveform(1, 0); // end of sequence
+      motors[i].go();
+    }
+  }
+}
+
+void processObstacles() {
+  uint16_t distances[SENSOR_COUNT] = {0};
+  float speeds[SENSOR_COUNT] = {0};
+
+  // Gather all sensor data
+  for (int i = 0; i < SENSOR_COUNT; i++) {
+    distances[i] = readSensorMinDistance(i);
+    speeds[i] = (distances[i] > 0) ? calculateApproachSpeed(i, distances[i]) : 0;
+  }
+
+  // Decide priority obstacle
+  int priorityIndex = selectPriorityObstacle(distances, speeds);
+
+  // Trigger haptics if debounce time has passed
+  if (priorityIndex != -1 && (millis() - lastMotorTrigger) >= DEBOUNCE_INTERVAL_MS) {
+    uint8_t mask = sensorToMotorMask(priorityIndex);
+    uint8_t effect = (distances[priorityIndex] < IMMEDIATE_DANGER_MM) ? 6 : 1; 
+
+    triggerMotor(mask, effect);
+    lastMotorTrigger = millis();
+    Serial.printf("ALERT! Sensor %d | Dist: %d mm | Speed: %.1f mm/s\n", priorityIndex, distances[priorityIndex], speeds[priorityIndex]);
   }
 }
 
@@ -180,9 +188,6 @@ void setup() {
   }
   initMotors();
  
-  // audio.setPinout(I2S_BCLK, I2S_LRC, I2S_DOUT);
-  // audio.setVolume(15);
- 
   Serial.println("VibraVis ready.");
 }
  
@@ -192,6 +197,4 @@ void loop() {
     lastPollTime = now;
     processObstacles();
   }
- 
-  // audio.loop(); // uncomment once audio wiring/logic is implemented
 }
