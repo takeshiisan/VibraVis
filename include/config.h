@@ -21,13 +21,13 @@ enum SensorPosition {
     SENSOR_COUNT
 };
 
-struct SensorMuxMapping {
+struct DeviceMuxMapping {
     uint8_t muxAddress; // TCA9548A multiplexer address
     uint8_t channel;    // Channel on the multiplexer (0-7)
 };
 
 // EXAMPLE MAPPING LANG: ADJUST ACCORDING TO ACTUAL HARDWARE SETUP
-static const struct SensorMuxMapping sensorMuxMappings[SENSOR_COUNT] = {
+static const struct DeviceMuxMapping sensorMuxMappings[SENSOR_COUNT] = {
     {TCA9548A_1_ADDRESS, 0}, // SENSOR_LEFT_ARM
     {TCA9548A_1_ADDRESS, 1}, // SENSOR_RIGHT_ARM
     {TCA9548A_1_ADDRESS, 2}, // SENSOR_BRIDGE
@@ -46,7 +46,7 @@ enum MotorZone {
 // NOTE: The DRV2605L's I2C address is fixed at 0x5A per its datasheet and is NOT user-configurable like the TCA9548A.
 #define DRV2605L_ADDRESS 0x5A
 
-static const struct SensorMuxMapping motorMuxMappings[MOTOR_COUNT] = {
+static const struct DeviceMuxMapping motorMuxMappings[MOTOR_COUNT] = {
     {TCA9548A_2_ADDRESS, 3}, // MOTOR_LEFT
     {TCA9548A_2_ADDRESS, 4}, // MOTOR_CENTER
     {TCA9548A_2_ADDRESS, 5}  // MOTOR_RIGHT
