@@ -175,10 +175,8 @@ uint8_t distanceToAmplitude(uint16_t distanceMm) {
 
 void updateMotorIntensities(uint8_t motorMask, uint8_t amplitude) {
   for(int i = 0; i < MOTOR_COUNT; i++) {
-    if(motorMask & (1 << i)) {
       selectMuxChannel(motorMuxMappings[i].muxAddress, motorMuxMappings[i].channel);
-      motors[i].setRealtimeValue(amplitude);
-    }
+      motors[i].setRealtimeValue((motorMask & (1 << i)) ? amplitude : 0); // set amplitude or silence
   }
 }
 
@@ -204,7 +202,7 @@ void processObstacles() {
   uint8_t amplitude = distanceToAmplitude(distances[priorityIndex]);
   updateMotorIntensities(mask, amplitude);
 
-  Serial,printf("ALERT! Sensor %d | Dist: %d mm | Speed: %.1f mm/s | Amplitude: %d\n", priorityIndex, distances[priorityIndex], speeds[priorityIndex], amplitude);
+  Serial.printf("ALERT! Sensor %d | Dist: %d mm | Speed: %.1f mm/s | Amplitude: %d\n", priorityIndex, distances[priorityIndex], speeds[priorityIndex], amplitude);
     // triggerMotor(mask, effect);
     // lastMotorTrigger = millis();
     // Serial.printf("ALERT! Sensor %d | Dist: %d mm | Speed: %.1f mm/s\n", priorityIndex, distances[priorityIndex], speeds[priorityIndex]);
