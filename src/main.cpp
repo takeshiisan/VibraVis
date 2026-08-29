@@ -56,7 +56,8 @@ void initMotors() {
 
     if(motors[i].begin()) {
       motors[i].selectLibrary(1); // select ERM library
-      motors[i].setMode(DRV2605_MODE_INTTRIG); // internal trigger mode
+      motors[i].setMode(DRV2605_MODE_REALTIME); // RTP MODE
+      motors[i].setRealtimeValue(0); // start silent
       Serial.printf("Motor %d initialized successfully.\n", i);
     } else {
       Serial.printf("Failed to init motor %d\n", i);
@@ -142,13 +143,41 @@ uint8_t sensorToMotorMask(int sensorIndex) {
   }
 }
 
-void triggerMotor(uint8_t motorMask, uint8_t effectId) {
+/*
+EFFECT ID MAPPING: For simplicity, we can use the same effect ID for all motors. 
+(WILL NOT BE USED FOR NOW).
+*/
+
+// void triggerMotor(uint8_t motorMask, uint8_t effectId) {
+//   for(int i = 0; i < MOTOR_COUNT; i++) {
+//     if(motorMask & (1 << i)) {
+//       selectMuxChannel(motorMuxMappings[i].muxAddress, motorMuxMappings[i].channel);
+//       motors[i].setWaveform(0, effectId); // set effect
+//       motors[i].setWaveform(1, 0); // end of sequence
+//       motors[i].go();
+//     }
+//   }
+// }
+
+
+// THEORETICALLY, we could use the DRV2605L's RTP mode to set a continuous vibration intensity based on distance.
+
+uint8_t distanceToAmplitude(uint16_t distanceMm) {
+  if(distanceMm == 0 || distanceMm > OBSTACLE_DETECTION_THRESHOLD_MM) {
+    return 0; // nothing in range = no vibration
+  }
+  if (distanceMm < IMMEDIATE_DANGER_MM) {
+    return RTP_MAX_AMPLITUDE; // immediate danger = max vibration
+  }
+  float ration = (float)(OBSTACLE_DETECTION_THRESHOLD_MM - distanceMm) / (OBSTACLE_DETECTION_THRESHOLD_MM - IMMEDIATE_DANGER_MM);
+  return RTP_MIN_AMPLITUDE + (uint8_t)(ration * (RTP_MAX_AMPLITUDE - RTP_MIN_AMPLITUDE));
+}
+
+void updateMotorIntensities(uint8_t motorMask, uint8_t amplitude) {
   for(int i = 0; i < MOTOR_COUNT; i++) {
     if(motorMask & (1 << i)) {
       selectMuxChannel(motorMuxMappings[i].muxAddress, motorMuxMappings[i].channel);
-      motors[i].setWaveform(0, effectId); // set effect
-      motors[i].setWaveform(1, 0); // end of sequence
-      motors[i].go();
+      motors[i].setRealtimeValue(amplitude);
     }
   }
 }
@@ -166,16 +195,22 @@ void processObstacles() {
   // Decide priority obstacle
   int priorityIndex = selectPriorityObstacle(distances, speeds);
 
-  // Trigger haptics if debounce time has passed
-  if (priorityIndex != -1 && (millis() - lastMotorTrigger) >= DEBOUNCE_INTERVAL_MS) {
-    uint8_t mask = sensorToMotorMask(priorityIndex);
-    uint8_t effect = (distances[priorityIndex] < IMMEDIATE_DANGER_MM) ? 6 : 1; 
-
-    triggerMotor(mask, effect);
-    lastMotorTrigger = millis();
-    Serial.printf("ALERT! Sensor %d | Dist: %d mm | Speed: %.1f mm/s\n", priorityIndex, distances[priorityIndex], speeds[priorityIndex]);
+  if (priorityIndex == -1) {
+    updateMotorIntensities(0,0);
+    return; // no alert needed
   }
+
+  uint8_t mask = sensorToMotorMask(priorityIndex);
+  uint8_t amplitude = distanceToAmplitude(distances[priorityIndex]);
+  updateMotorIntensities(mask, amplitude);
+
+  Serial,printf("ALERT! Sensor %d | Dist: %d mm | Speed: %.1f mm/s | Amplitude: %d\n", priorityIndex, distances[priorityIndex], speeds[priorityIndex], amplitude);
+    // triggerMotor(mask, effect);
+    // lastMotorTrigger = millis();
+    // Serial.printf("ALERT! Sensor %d | Dist: %d mm | Speed: %.1f mm/s\n", priorityIndex, distances[priorityIndex], speeds[priorityIndex]);
+  //}
 }
+
 
 void setup() {
   Serial.begin(115200);
