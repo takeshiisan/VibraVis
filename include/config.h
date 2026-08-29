@@ -46,19 +46,19 @@ enum MotorZone {
 // NOTE: The DRV2605L's I2C address is fixed at 0x5A per its datasheet and is NOT user-configurable like the TCA9548A.
 #define DRV2605L_ADDRESS 0x5A
 
-static const struct DeviceMuxMapping motorMuxMappings[MOTOR_COUNT] = {
+static const struct SensorMuxMapping motorMuxMappings[MOTOR_COUNT] = {
     {TCA9548A_2_ADDRESS, 3}, // MOTOR_LEFT
     {TCA9548A_2_ADDRESS, 4}, // MOTOR_CENTER
     {TCA9548A_2_ADDRESS, 5}  // MOTOR_RIGHT
 };
 
 // Bitmasks for triggering multiple motors simultaneously (if needed)
-#define MOTOR_LEFT   (1 << MOTOR_LEFT)
-#define MOTOR_CENTER (1 << MOTOR_CENTER)
-#define MOTOR_RIGHT (1 << MOTOR_RIGHT)
+#define MASK_LEFT   (1 << MOTOR_LEFT)
+#define MASK_CENTER (1 << MOTOR_CENTER)
+#define MASK_RIGHT (1 << MOTOR_RIGHT)
 
 // Thresholds and timings 
-#define OBSTACLE_DETECTION_THRESHOLD_MM 1000 // mm
+#define OBSTACLE_DETECTION_THRESHOLD_MM 1500 // mm
 #define IMMEDIATE_DANGER_MM 300 // mm
 #define DEBOUNCE_INTERVAL_MS 500 // ms
 #define SENSOR_POLL_INTERVAL_MS 100 // ms
@@ -68,4 +68,7 @@ static const struct DeviceMuxMapping motorMuxMappings[MOTOR_COUNT] = {
 #define I2S_LRC  12
 #define I2S_DOUT 13
 
+//RTP 
+#define RTP_MAX_AMPLITUDE 127 
+#define RTP_MIN_AMPLITUDE 40
 #endif // CONFIG_H
