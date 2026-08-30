@@ -8,11 +8,18 @@ VibraVis: Specialized Haptic Feedback Eyeglasses
 #include <Wire.h>
 #include <Adafruit_DRV2605.h>
 #include <Adafruit_VL53L7CX.h>
+#include <SparkFun_MAX1704x_Fuel_Gauge_Arduino_Library.h>
 //#include "Audio.h"
 #include "config.h"
 
 Adafruit_VL53L7CX vl53l7cx;
 Adafruit_DRV2605 motors[MOTOR_COUNT];
+SFE_MAX1704X lipo;
+
+float batteryPercent = 100.0f; 
+bool lowBatteryAlert = false; 
+unsigned long lastBatteryCheck = 0;
+
 
 unsigned long lastMotorTrigger = 0;
 unsigned long lastPollTime = 0;
@@ -86,6 +93,7 @@ uint16_t readSensorMinDistance(int sensorIndex) {
     }
   return (minDistance == 65535) ? 0 : minDistance;
   }
+  return 0;
 }
 
 // Calculate approach speed (mm/s). Positive = approaching. 
@@ -209,6 +217,30 @@ void processObstacles() {
   //}
 }
 
+// Initializes the MAX17043 fuel gauge and sets the low battery alert threshold.
+
+bool initBatteryGuage() {
+  if (!lipo.begin()) {
+    Serial.println("MAX17043 not detected. Check wiring.");
+    return false;
+  }
+  lipo.quickStart(); // Reset the fuel gauge to improve accuracy
+  lipo.setThreshold(LOW_BATTERY_PERCENT); // Set low battery alert threshold
+  Serial.println("MAX17043 initialized successfully.");
+  return true;
+}
+
+// Periodic reading of battery SOC
+void checkBattery() {
+  unsigned long now = millis();
+  if (now - lastBatteryCheck < BATTERY_CHECK_INTERVAL_MS) return;
+  lastBatteryCheck = now; 
+
+  batteryPercent = lipo.getSOC();
+  lowBatteryAlert = (batteryPercent <= LOW_BATTERY_PERCENT);
+  Serial.printf("Battery: %.1f%% | Voltage: %.2f V | Low Battery Alert: %s\n", batteryPercent, lipo.getVoltage(), lowBatteryAlert ? "YES" : "NO");
+  //TODO: Implement low battery alert to user (Audio feedback and LED indicator).
+}
 
 void setup() {
   Serial.begin(115200);
