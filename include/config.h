@@ -73,11 +73,8 @@ static const struct DeviceMuxMapping motorMuxMappings[MOTOR_COUNT] = {
 #define RTP_MIN_AMPLITUDE 40
 
 //MAX17043
-#define MAX17043_ADDRESS 0x36
-#define MAX17043_VCELL 0x02 
-#define MAX17043_SOC 0x04
-#define MAX17043_MODE 0x06
-#define MAX17043_VERSION 0x08
+#define LOW_BATTERY_PERCENT 15.0f // trigger for low battery warning bellow this %
+#define BATTERY_CHECK_INTERVAL_MS 10000 // check battery every 10 seconds
 
 #endif // CONFIG_H
 
