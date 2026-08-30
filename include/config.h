@@ -71,7 +71,6 @@ static const struct DeviceMuxMapping motorMuxMappings[MOTOR_COUNT] = {
 //RTP 
 #define RTP_MAX_AMPLITUDE 127 
 #define RTP_MIN_AMPLITUDE 40
-#endif // CONFIG_H
 
 //MAX17043
 #define MAX17043_ADDRESS 0x36
@@ -79,3 +78,6 @@ static const struct DeviceMuxMapping motorMuxMappings[MOTOR_COUNT] = {
 #define MAX17043_SOC 0x04
 #define MAX17043_MODE 0x06
 #define MAX17043_VERSION 0x08
+
+#endif // CONFIG_H
+
