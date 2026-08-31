@@ -56,7 +56,8 @@ bool initSensors() {
 }
 
 // Initialize the 3 DRV2605L motor drivers 
-void initMotors() {
+bool initMotors() {
+  bool allOk = true;
   for (int i = 0; i < MOTOR_COUNT; i++) {
     selectMuxChannel(motorMuxMappings[i].muxAddress, motorMuxMappings[i].channel);
     delay(5);
@@ -68,8 +69,10 @@ void initMotors() {
       Serial.printf("Motor %d initialized successfully.\n", i);
     } else {
       Serial.printf("Failed to init motor %d\n", i);
+      allOk = false;
     }
   }
+  return allOk;
 }
 
 // Read one sensor's minimum in-range distance
@@ -251,7 +254,9 @@ void setup() {
   if (!initSensors()) {
     Serial.println("WARNING: one or more sensors failed to init.");
   }
-  initMotors();
+  if (!initMotors()) {
+    Serial.println("WARNING: one or more motors failed to init.");
+  }
  
   Serial.println("VibraVis ready.");
 }
