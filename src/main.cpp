@@ -9,12 +9,15 @@ VibraVis: Specialized Haptic Feedback Eyeglasses
 #include <Adafruit_DRV2605.h>
 #include <Adafruit_VL53L7CX.h>
 #include <SparkFun_MAX1704x_Fuel_Gauge_Arduino_Library.h>
-//#include "Audio.h"
+#include <SPIFFS.h>
+#include "Audio.h"
 #include "config.h"
 
 Adafruit_VL53L7CX vl53l7cx;
 Adafruit_DRV2605 motors[MOTOR_COUNT];
+VL53L7CX_ResultsData results;
 SFE_MAX1704X lipo;
+Audio audio;
 
 float batteryPercent = 100.0f; 
 bool lowBatteryAlert = false; 
@@ -80,8 +83,7 @@ bool initMotors() {
 uint16_t readSensorMinDistance(int sensorIndex) {
   selectMuxChannel(sensorMuxMappings[sensorIndex].muxAddress, sensorMuxMappings[sensorIndex].channel);
   
-  if (vl53l7cx.isDataReady()) {
-   VL53L7CX_ResultsData results;
+  if (vl53l7cx.isDataReady()) {   
    vl53l7cx.getRangingData(&results);
 
    uint16_t minDistance = 65535; // max uint16_t
@@ -243,6 +245,12 @@ void checkBattery() {
   lowBatteryAlert = (batteryPercent <= LOW_BATTERY_PERCENT);
   Serial.printf("Battery: %.1f%% | Voltage: %.2f V | Low Battery Alert: %s\n", batteryPercent, lipo.getVoltage(), lowBatteryAlert ? "YES" : "NO");
   //TODO: Implement low battery alert to user (Audio feedback and LED indicator).
+}
+
+void playLowBatteryAlert() {
+  if (audio.isRunning()) return; // Don't interrupt if audio is already playing
+  audio.connecttoFS(SPIFFS, "/low_battery_alert.wav"); // Ensure this file exists in SPI
+
 }
 
 void setup() {
