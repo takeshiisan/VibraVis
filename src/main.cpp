@@ -1,7 +1,7 @@
 /* 
-VibraVis: Specialized Haptic Feedback Eyeglasses
-*****************************************************
-
+* VibraVis: Specialized Haptic Feedback Eyeglasses
+* ****************************************************
+* Written by: Nathan "takeshiisan" Tan with assistance from Claude Code
 */
 
 #include <Arduino.h>
