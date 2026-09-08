@@ -308,6 +308,12 @@ void playLowBatteryAlert() {
 
 void setup() {
   Serial.begin(115200);
+
+  unsigned long waitStart = millis();
+  while (!Serial && (millis() - waitStart < 5000)) {
+    delay(10); // wait up to 5s for the host to actually open the CDC port
+  }
+
   Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN);
   //for testing
   Wire.beginTransmission(TCA9548A_2_ADDRESS);
