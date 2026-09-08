@@ -32,8 +32,9 @@ unsigned long lastPollTime = 0;
 uint16_t previousDistance[SENSOR_COUNT]   = {0};
 unsigned long previousReadTime[SENSOR_COUNT] = {0};
 
-//Track successfully initialized sensors
+//Track successfully initialized sensors and motors
 bool sensorActive[SENSOR_COUNT] = {false};
+bool motorActive[MOTOR_COUNT] = {false};
 
 // Multiplexer channel select 
 void selectMuxChannel(uint8_t muxAddress, uint8_t channel) {
@@ -88,6 +89,7 @@ bool initMotors() {
       motors[i].selectLibrary(1); // select ERM library
       motors[i].setMode(DRV2605_MODE_REALTIME); // RTP MODE
       motors[i].setRealtimeValue(0); // start silent
+      motorActive[i] = true;
       Serial.printf("Motor %d initialized successfully.\n", i);
     } else {
       Serial.printf("Failed to init motor %d\n", i);
@@ -214,6 +216,7 @@ uint8_t distanceToAmplitude(uint16_t distanceMm) {
 
 void updateMotorIntensities(uint8_t motorMask, uint8_t amplitude) {
   for(int i = 0; i < MOTOR_COUNT; i++) {
+      if(!motorActive[i]) continue; // Skip if motor failed to initialize
       selectMuxChannel(motorMuxMappings[i].muxAddress, motorMuxMappings[i].channel);
       motors[i].setRealtimeValue((motorMask & (1 << i)) ? amplitude : 0); // set amplitude or silence
   }
