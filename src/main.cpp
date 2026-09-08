@@ -308,11 +308,7 @@ void playLowBatteryAlert() {
 
 void setup() {
   Serial.begin(115200);
-
-  unsigned long waitStart = millis();
-  while (!Serial && (millis() - waitStart < 5000)) {
-    delay(10); 
-  }
+  delay(1000); // Allow time for Serial to initialize
 
   Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN);
   //for testing
@@ -320,7 +316,7 @@ void setup() {
   mux2Present = (Wire.endTransmission() == 0); // Check if second mux is present
   Serial.printf("MUX2 present: %s\n", mux2Present ? "YES" : "NO");
  
-  Serial.println("VibraVis booting...");
+  Serial.println("VibraVis booting...");  
  
   if (!initSensors()) {
     Serial.println("WARNING: one or more sensors failed to init.");
