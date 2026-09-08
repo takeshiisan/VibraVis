@@ -32,6 +32,9 @@ unsigned long lastPollTime = 0;
 uint16_t previousDistance[SENSOR_COUNT]   = {0};
 unsigned long previousReadTime[SENSOR_COUNT] = {0};
 
+//Track successfully initialized sensors
+bool sensorActive[SENSOR_COUNT] = {false};
+
 // Multiplexer channel select 
 void selectMuxChannel(uint8_t muxAddress, uint8_t channel) {
   Wire.beginTransmission(TCA9548A_1_ADDRESS); 
@@ -58,13 +61,18 @@ bool initSensors() {
 
     if (!tofsensors[i].begin(VL53L7CX_DEFAULT_ADDRESS, &Wire, 400000)) {
       Serial.printf("Failed to init sensor %d\n", i);
+      Serial.flush(); 
       allOk = false;
       continue;
     }
     tofsensors[i].setResolution(64); // 8x8 resolution
     tofsensors[i].setRangingFrequency(30); // 30HZ
     tofsensors[i].startRanging();
+
+    sensorActive[i] = true;
+
     Serial.printf("Sensor %d initialized successfully.\n", i);
+    Serial.flush();
   }
   return allOk;
 }
@@ -92,6 +100,10 @@ bool initMotors() {
 // Read one sensor's minimum in-range distance
 // Returns 0 if no valid reading or sensor not ready.
 uint16_t readSensorMinDistance(int sensorIndex) {
+  // CRITICAL: Skip this sensor if it failed to initialize
+  if (!sensorActive[sensorIndex]) {
+      return 0; 
+  }
   selectMuxChannel(sensorMuxMappings[sensorIndex].muxAddress, sensorMuxMappings[sensorIndex].channel);
   
   if (tofsensors[sensorIndex].isDataReady()) {   
