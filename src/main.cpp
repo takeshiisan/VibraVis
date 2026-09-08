@@ -313,9 +313,30 @@ void setup() {
   Serial.println("VibraVis starting...");
   Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN);
   //for testing
+  Wire.beginTransmission(TCA9548A_1_ADDRESS);
+  bool mux1Present = (Wire.endTransmission() == 0);
+  Serial.printf("MUX1 (0x70) present: %s\n", mux1Present ? "YES" : "NO");
+
   Wire.beginTransmission(TCA9548A_2_ADDRESS);
   mux2Present = (Wire.endTransmission() == 0); // Check if second mux is present
   Serial.printf("MUX2 present: %s\n", mux2Present ? "YES" : "NO");
+
+  // --- TEMP DEBUG: scan channel 0 on mux1 ---
+  selectMuxChannel(TCA9548A_1_ADDRESS, 0);
+  delay(5);
+  Serial.println("Scanning MUX1 channel 0...");
+  bool found = false;
+  for (uint8_t addr = 1; addr < 127; addr++) {
+    Wire.beginTransmission(addr);
+    if (Wire.endTransmission() == 0) {
+      Serial.printf("  Found device at 0x%02X\n", addr);
+      found = true;
+    }
+  }
+  if (!found) Serial.println("  Nothing found on this channel!");
+  // --- END TEMP DEBUG ---
+
+  while (true) { delay(1000); } // halt here so the output doesn't scroll away
  
   Serial.println("VibraVis booting...");  
  
@@ -346,6 +367,7 @@ void loop() {
     lastPollTime = now;
     processObstacles();
     Serial.println("VibraVis is alive.");
+    delay(5000); // small delay to avoid flooding the serial output
   }
   checkBattery();
   audio.loop(); // process audio playback
