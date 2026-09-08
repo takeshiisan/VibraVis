@@ -320,23 +320,6 @@ void setup() {
   Wire.beginTransmission(TCA9548A_2_ADDRESS);
   mux2Present = (Wire.endTransmission() == 0); // Check if second mux is present
   Serial.printf("MUX2 present: %s\n", mux2Present ? "YES" : "NO");
-
-  // --- TEMP DEBUG: scan channel 0 on mux1 ---
-  selectMuxChannel(TCA9548A_1_ADDRESS, 0);
-  delay(5);
-  Serial.println("Scanning MUX1 channel 0...");
-  bool found = false;
-  for (uint8_t addr = 1; addr < 127; addr++) {
-    Wire.beginTransmission(addr);
-    if (Wire.endTransmission() == 0) {
-      Serial.printf("  Found device at 0x%02X\n", addr);
-      found = true;
-    }
-  }
-  if (!found) Serial.println("  Nothing found on this channel!");
-  // --- END TEMP DEBUG ---
-
-  while (true) { delay(1000); } // halt here so the output doesn't scroll away
  
   Serial.println("VibraVis booting...");  
  
