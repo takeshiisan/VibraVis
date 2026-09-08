@@ -352,7 +352,7 @@ void loop() {
   audio.loop(); // process audio playback
 
   if(spiffsReady && !audio.isRunning()) {
-    audio.connecttoFS(SPIFFS, "/low_battery_alert.wav");
+    audio.connecttoFS(SPIFFS, "/Pink-Panther.wav");
   }
 
   unsigned long now = millis();
