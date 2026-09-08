@@ -93,8 +93,11 @@ uint16_t readSensorMinDistance(int sensorIndex) {
   selectMuxChannel(sensorMuxMappings[sensorIndex].muxAddress, sensorMuxMappings[sensorIndex].channel);
   
   if (tofsensors[sensorIndex].isDataReady()) {   
-   tofsensors[sensorIndex].getRangingData(&results);
-
+   if(!tofsensors[sensorIndex].getRangingData(&results)) {
+     Serial.printf("Failed to get ranging data from sensor %d\n", sensorIndex);
+     return 0;
+   }
+   
    uint16_t minDistance = 65535; // max uint16_t
    // Scan all 64 zones for closest target
   for(int j = 0; j < 64; j++) {
