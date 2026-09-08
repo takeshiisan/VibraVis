@@ -348,13 +348,25 @@ void setup() {
   audio.setPinout(I2S_BCLK, I2S_LRC, I2S_DOUT);
   audio.setVolume(15); //  0-21 scale, unrelated to the 0-127 RTP haptic scale.
   //test audio
+  audio.loop();
   Serial.println("Attempting playback...");
   bool started = audio.connecttoFS(SPIFFS, "/low_battery_alert.wav");
   Serial.printf("connecttoFS returned: %s\n", started ? "true" : "false");
- 
+  
+  if (spiffsReady && !audio.isRunning()) {
+    audio.connecttoFS(SPIFFS, "/low_battery_alert.wav");
+    Serial.println("Playing low battery alert test...");
+  }
+
+  unsigned long now = millis();
+  if (now - lastPollTime >= SENSOR_POLL_INTERVAL_MS) {
+    lastPollTime = now;
+    processObstacles();
+    // NOTE: delay(5000) was deleted here because it freezes audio and sensors!
+  }
+
   Serial.println("VibraVis ready.");
 }
- 
 void loop() {
   unsigned long now = millis();
   if (now - lastPollTime >= SENSOR_POLL_INTERVAL_MS) {
