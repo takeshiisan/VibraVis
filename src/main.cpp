@@ -32,9 +32,11 @@ unsigned long lastPollTime = 0;
 uint16_t previousDistance[SENSOR_COUNT]   = {0};
 unsigned long previousReadTime[SENSOR_COUNT] = {0};
 
-//Track successfully initialized sensors and motors
+//Track successfully initialized sensors, motors, battery guage, and audio system
 bool sensorActive[SENSOR_COUNT] = {false};
 bool motorActive[MOTOR_COUNT] = {false};
+bool batteryGaugeActive = false;
+bool spiffsReady = false;
 
 // Multiplexer channel select 
 void selectMuxChannel(uint8_t muxAddress, uint8_t channel) {
@@ -260,12 +262,15 @@ bool initBatteryGuage() {
   }
   lipo.quickStart(); // Reset the fuel gauge to improve accuracy
   lipo.setThreshold(LOW_BATTERY_PERCENT); // Set low battery alert threshold
+  batteryGaugeActive = true;
   Serial.println("MAX17043 initialized successfully.");
   return true;
 }
 
 // Periodic reading of battery SOC
 void checkBattery() {
+  if (!batteryGaugeActive) return; // Skip if battery gauge failed to initialize
+
   unsigned long now = millis();
   if (now - lastBatteryCheck < BATTERY_CHECK_INTERVAL_MS) return;
   lastBatteryCheck = now; 
@@ -283,6 +288,10 @@ void checkBattery() {
 }
 
 void playLowBatteryAlert() {
+  if (!spiffsReady) {
+    Serial.println("SPIFFS not ready. Cannot play low battery alert.");
+    return;
+  }
   if (audio.isRunning()) return; // Don't interrupt if audio is already playing
   audio.connecttoFS(SPIFFS, "/low_battery_alert.wav"); // Ensure this file exists in SPI
 
@@ -305,6 +314,9 @@ void setup() {
   }
   if (!SPIFFS.begin(true)) {
     Serial.println("SPIFFS Mount Failed");
+  } else {
+    spiffsReady = true;
+    Serial.println("SPIFFS mounted successfully.");
   }
   audio.setPinout(I2S_BCLK, I2S_LRC, I2S_DOUT);
   audio.setVolume(15); //  0-21 scale, unrelated to the 0-127 RTP haptic scale.
