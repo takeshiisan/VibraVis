@@ -309,7 +309,8 @@ void playLowBatteryAlert() {
 
 void setup() {
   Serial.begin(115200);
-
+  delay(1000); // Allow time for Serial to initialize
+  Serial.println("VibraVis starting...");
   Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN);
   //for testing
   Wire.beginTransmission(TCA9548A_2_ADDRESS);
