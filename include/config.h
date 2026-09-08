@@ -3,8 +3,8 @@
 #define CONFIG_H
 
 // ESP32-S3 Default I2C Pins (can be changed if needed)
-#define I2C_SDA_PIN 8
-#define I2C_SCL_PIN 9
+#define I2C_SDA_PIN 4
+#define I2C_SCL_PIN 5
 
 // TCA9548A Multiplexer Addresses 
 #define TCA9548A_1_ADDRESS 0x70 
