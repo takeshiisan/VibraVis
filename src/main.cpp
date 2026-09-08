@@ -38,15 +38,19 @@ bool motorActive[MOTOR_COUNT] = {false};
 bool batteryGaugeActive = false;
 bool spiffsReady = false;
 
+bool mux2Present = false; 
+
 // Multiplexer channel select 
 void selectMuxChannel(uint8_t muxAddress, uint8_t channel) {
   Wire.beginTransmission(TCA9548A_1_ADDRESS); 
   Wire.write(0x00); // disable all channels
   Wire.endTransmission();
 
-  Wire.beginTransmission(TCA9548A_2_ADDRESS);
-  Wire.write(0x00); // disable all channels
-  Wire.endTransmission();
+   if (mux2Present) {
+    Wire.beginTransmission(TCA9548A_2_ADDRESS);
+    Wire.write(0x00);
+    Wire.endTransmission();
+  }
 
   Wire.beginTransmission(muxAddress); 
   Wire.write(1 << channel); // enable the desired channel
@@ -256,6 +260,11 @@ void processObstacles() {
 // Initializes the MAX17043 fuel gauge and sets the low battery alert threshold.
 
 bool initBatteryGuage() {
+  Wire.beginTransmission(0x36); 
+  if (Wire.endTransmission() != 0) {
+    Serial.println("MAX17043 not detected. Check wiring.");
+    return false;
+  }
   if (!lipo.begin()) {
     Serial.println("MAX17043 not detected. Check wiring.");
     return false;
@@ -300,6 +309,10 @@ void playLowBatteryAlert() {
 void setup() {
   Serial.begin(115200);
   Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN);
+  //for testing
+  Wire.beginTransmission(TCA9548A_2_ADDRESS);
+  mux2Present = (Wire.endTransmission() == 0); // Check if second mux is present
+  Serial.printf("MUX2 present: %s\n", mux2Present ? "YES" : "NO");
  
   Serial.println("VibraVis booting...");
  
