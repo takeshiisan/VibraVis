@@ -306,6 +306,7 @@ void playLowBatteryAlert() {
 
 }
 
+
 void setup() {
   Serial.begin(115200);
   delay(1000); // Allow time for Serial to initialize
