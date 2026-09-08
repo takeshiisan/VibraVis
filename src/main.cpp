@@ -345,6 +345,7 @@ void loop() {
   if (now - lastPollTime >= SENSOR_POLL_INTERVAL_MS) {
     lastPollTime = now;
     processObstacles();
+    Serial.println("VibraVis is alive.");
   }
   checkBattery();
   audio.loop(); // process audio playback
