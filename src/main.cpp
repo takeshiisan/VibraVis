@@ -359,8 +359,8 @@ void loop() {
   if (now - lastPollTime >= SENSOR_POLL_INTERVAL_MS) {
     lastPollTime = now;
     processObstacles();
-    Serial.println("VibraVis is alive.");
-    delay(5000); // small delay to avoid flooding the serial output
+    // Serial.println("VibraVis is alive.");
+    // delay(5000); // small delay to avoid flooding the serial output
   }
   checkBattery();
 }
