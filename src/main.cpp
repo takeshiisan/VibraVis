@@ -338,8 +338,19 @@ void setup() {
     spiffsReady = true;
     Serial.println("SPIFFS mounted successfully.");
   }
+  Serial.println("Files in SPIFFS:");
+  File root = SPIFFS.open("/");
+  File file = root.openNextFile();
+  while (file) {
+    Serial.printf("  %s (%d bytes)\n", file.name(), file.size());
+    file = root.openNextFile();
+  }
   audio.setPinout(I2S_BCLK, I2S_LRC, I2S_DOUT);
   audio.setVolume(15); //  0-21 scale, unrelated to the 0-127 RTP haptic scale.
+  //test audio
+  Serial.println("Attempting playback...");
+  bool started = audio.connecttoFS(SPIFFS, "/low_battery_alert.wav");
+  Serial.printf("connecttoFS returned: %s\n", started ? "true" : "false");
  
   Serial.println("VibraVis ready.");
 }
