@@ -309,10 +309,7 @@ void playLowBatteryAlert() {
 
 void setup() {
   Serial.begin(115200);
-  
-   while (!Serial) {
-    delay(10); 
-  }
+
   Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN);
   //for testing
   Wire.beginTransmission(TCA9548A_2_ADDRESS);
