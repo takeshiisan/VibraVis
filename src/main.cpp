@@ -13,7 +13,7 @@
 #include "Audio.h"
 #include "config.h"
 
-Adafruit_VL53L7CX vl53l7cx;
+Adafruit_VL53L7CX tofsensors[SENSOR_COUNT];
 Adafruit_DRV2605 motors[MOTOR_COUNT];
 VL53L7CX_ResultsData results;
 SFE_MAX1704X lipo;
@@ -22,7 +22,6 @@ Audio audio;
 float batteryPercent = 100.0f; 
 bool lowBatteryAlert = false; 
 unsigned long lastBatteryCheck = 0;
-
 
 unsigned long lastMotorTrigger = 0;
 unsigned long lastPollTime = 0;
@@ -33,9 +32,19 @@ unsigned long previousReadTime[SENSOR_COUNT] = {0};
 
 // Multiplexer channel select 
 void selectMuxChannel(uint8_t muxAddress, uint8_t channel) {
-  Wire.beginTransmission(muxAddress);
-  Wire.write(1 << channel);
+  Wire.beginTransmission(TCA9548A_1_ADDRESS); 
+  Wire.write(0x00); // disable all channels
   Wire.endTransmission();
+
+  Wire.beginTransmission(TCA9548A_2_ADDRESS);
+  Wire.write(0x00); // disable all channels
+  Wire.endTransmission();
+
+  Wire.beginTransmission(muxAddress); 
+  Wire.write(1 << channel); // enable the desired channel
+  Wire.endTransmission();
+
+  Serial.printf("[MUX] Active -> addr: 0x%02X, channel: %d\n", muxAddress, channel);
 }
 
 // Initialize all 5 ToF sensors through their mux channels 
@@ -45,14 +54,14 @@ bool initSensors() {
     selectMuxChannel(sensorMuxMappings[i].muxAddress, sensorMuxMappings[i].channel);
     delay(5);
 
-    if (!vl53l7cx.begin(VL53L7CX_DEFAULT_ADDRESS, &Wire, 400000)) {
+    if (!tofsensors[i].begin(VL53L7CX_DEFAULT_ADDRESS, &Wire, 400000)) {
       Serial.printf("Failed to init sensor %d\n", i);
       allOk = false;
       continue;
     }
-    vl53l7cx.setResolution(64); // 8x8 resolution
-    vl53l7cx.setRangingFrequency(30); // 30HZ
-    vl53l7cx.startRanging();
+    tofsensors[i].setResolution(64); // 8x8 resolution
+    tofsensors[i].setRangingFrequency(30); // 30HZ
+    tofsensors[i].startRanging();
     Serial.printf("Sensor %d initialized successfully.\n", i);
   }
   return allOk;
@@ -83,8 +92,8 @@ bool initMotors() {
 uint16_t readSensorMinDistance(int sensorIndex) {
   selectMuxChannel(sensorMuxMappings[sensorIndex].muxAddress, sensorMuxMappings[sensorIndex].channel);
   
-  if (vl53l7cx.isDataReady()) {   
-   vl53l7cx.getRangingData(&results);
+  if (tofsensors[sensorIndex].isDataReady()) {   
+   tofsensors[sensorIndex].getRangingData(&results);
 
    uint16_t minDistance = 65535; // max uint16_t
    // Scan all 64 zones for closest target
