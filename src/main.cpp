@@ -352,7 +352,7 @@ void loop() {
   audio.loop(); // process audio playback
 
   if(spiffsReady && !audio.isRunning()) {
-    audio.connecttoFS(SPIFFS, "/Pink-Panther.wav");
+    audio.connecttoFS(SPIFFS, "/test_16bit_mono.wav");
   }
 
   unsigned long now = millis();
