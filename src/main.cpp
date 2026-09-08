@@ -20,6 +20,8 @@ SFE_MAX1704X lipo;
 Audio audio;
 
 float batteryPercent = 100.0f; 
+void playLowBatteryAlert();
+bool lowBatteryAlertPlayed = false;
 bool lowBatteryAlert = false; 
 unsigned long lastBatteryCheck = 0;
 
@@ -256,7 +258,13 @@ void checkBattery() {
   batteryPercent = lipo.getSOC();
   lowBatteryAlert = (batteryPercent <= LOW_BATTERY_PERCENT);
   Serial.printf("Battery: %.1f%% | Voltage: %.2f V | Low Battery Alert: %s\n", batteryPercent, lipo.getVoltage(), lowBatteryAlert ? "YES" : "NO");
-  //TODO: Implement low battery alert to user (Audio feedback and LED indicator).
+
+  if (lowBatteryAlert && !lowBatteryAlertPlayed) {
+    playLowBatteryAlert();
+    lowBatteryAlertPlayed = true;
+  } else if (!lowBatteryAlert) {
+    lowBatteryAlertPlayed = false; // reset if battery is no longer low
+  }
 }
 
 void playLowBatteryAlert() {
@@ -277,6 +285,14 @@ void setup() {
   if (!initMotors()) {
     Serial.println("WARNING: one or more motors failed to init.");
   }
+  if (!initBatteryGuage()) {
+    Serial.println("WARNING: Battery gauge failed to init.");
+  }
+  if (!SPIFFS.begin(true)) {
+    Serial.println("SPIFFS Mount Failed");
+  }
+  audio.setPinout(I2S_BCLK, I2S_LRC, I2S_DOUT);
+  audio.setVolume(15); //  0-21 scale, unrelated to the 0-127 RTP haptic scale.
  
   Serial.println("VibraVis ready.");
 }
@@ -287,4 +303,6 @@ void loop() {
     lastPollTime = now;
     processObstacles();
   }
+  checkBattery();
+  audio.loop(); // process audio playback
 }
