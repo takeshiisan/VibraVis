@@ -21,8 +21,6 @@ Audio audio;
 
 float batteryPercent = 100.0f; 
 void playLowBatteryAlert();
-bool lowBatteryAlertPlayed = false;
-bool lowBatteryAlert = false; 
 unsigned long lastBatteryCheck = 0;
 
 unsigned long lastMotorTrigger = 0;
@@ -56,7 +54,7 @@ void selectMuxChannel(uint8_t muxAddress, uint8_t channel) {
   Wire.write(1 << channel); // enable the desired channel
   Wire.endTransmission();
 
-  Serial.printf("[MUX] Active -> addr: 0x%02X, channel: %d\n", muxAddress, channel);
+  Serial.printf("[MUX] Active -> addr: 0x%02X, channel: %d\n", muxAddress, channel); //debug printing, to be commented out once done
 }
 
 // Initialize all 5 ToF sensors through their mux channels 
@@ -236,6 +234,9 @@ void processObstacles() {
   for (int i = 0; i < SENSOR_COUNT; i++) {
     distances[i] = readSensorMinDistance(i);
     speeds[i] = (distances[i] > 0) ? calculateApproachSpeed(i, distances[i]) : 0;
+
+    // ADDED: keeps audio buffer full during I2C transfers
+    audio.loop();
   }
 
   // Decide priority obstacle
@@ -251,15 +252,59 @@ void processObstacles() {
   updateMotorIntensities(mask, amplitude);
 
   Serial.printf("ALERT! Sensor %d | Dist: %d mm | Speed: %.1f mm/s | Amplitude: %d\n", priorityIndex, distances[priorityIndex], speeds[priorityIndex], amplitude);
-    // triggerMotor(mask, effect);
-    // lastMotorTrigger = millis();
-    // Serial.printf("ALERT! Sensor %d | Dist: %d mm | Speed: %.1f mm/s\n", priorityIndex, distances[priorityIndex], speeds[priorityIndex]);
-  //}
+  
+  // KEPT: processes audio during regular loop iterations
+  audio.loop();
+}
+
+enum BatteryLevel {
+  BATTERY_LEVEL_CRITICAL,
+  BATTERY_LEVEL_LOW,
+  BATTERY_LEVEL_MEDIUM,
+  BATTERY_LEVEL_HIGH
+};
+
+BatteryLevel lastBatteryLevel = BATTERY_LEVEL_HIGH; // Start assuming high battery till read cycle starts
+
+BatteryLevel getBatteryLevel(float batteryPercent) {
+  if (batteryPercent >= BATTERY_HIGH_THRESHOLD) {
+    return BATTERY_LEVEL_HIGH; // full charged
+  } else if (batteryPercent >= BATTERY_MEDIUM_THRESHOLD) {
+    return BATTERY_LEVEL_MEDIUM; // medium charged
+  } else  if (batteryPercent >= BATTERY_LOW_THRESHOLD) {
+    return BATTERY_LEVEL_LOW; // low charged
+  } else {
+    return BATTERY_LEVEL_CRITICAL; // critical low battery
+  }
+}
+//uses annode so inverted
+void setBatteryLED(BatteryLevel level) {
+  switch(level) {
+    case BATTERY_LEVEL_HIGH:
+      digitalWrite(LED_RED_PIN, HIGH); // turn off red LED
+      digitalWrite(LED_GREEN_PIN, LOW); // turn on green LED
+      digitalWrite(LED_BLUE_PIN, HIGH); //  turn off blue LED
+      break;
+    case BATTERY_LEVEL_MEDIUM:
+      digitalWrite(LED_RED_PIN, LOW); // turn on red LED
+      digitalWrite(LED_GREEN_PIN, LOW); // turn on green LED
+      digitalWrite(LED_BLUE_PIN, HIGH); // turn off blue LED
+      break;
+    case BATTERY_LEVEL_LOW:
+      digitalWrite(LED_RED_PIN, LOW); // turn on red LED
+      digitalWrite(LED_GREEN_PIN, HIGH); // turn off green LED
+      digitalWrite(LED_BLUE_PIN, HIGH); // turn off blue LED
+      break;
+    case BATTERY_LEVEL_CRITICAL:
+      digitalWrite(LED_RED_PIN, LOW); // turn on red LED
+      digitalWrite(LED_GREEN_PIN, HIGH); // turn off green LED
+      digitalWrite(LED_BLUE_PIN, LOW); // turn on blue LED for purple color
+      break;
+  }
 }
 
 // Initializes the MAX17043 fuel gauge and sets the low battery alert threshold.
-
-bool initBatteryGuage() {
+bool initBatteryGauge() {
   Wire.beginTransmission(0x36); 
   if (Wire.endTransmission() != 0) {
     Serial.println("MAX17043 not detected. Check wiring.");
@@ -270,40 +315,61 @@ bool initBatteryGuage() {
     return false;
   }
   lipo.quickStart(); // Reset the fuel gauge to improve accuracy
-  lipo.setThreshold(LOW_BATTERY_PERCENT); // Set low battery alert threshold
   batteryGaugeActive = true;
   Serial.println("MAX17043 initialized successfully.");
+
+  batteryPercent = lipo.getSOC();
+  lastBatteryLevel = getBatteryLevel(batteryPercent);
+  setBatteryLED(lastBatteryLevel);
+  Serial.printf("Initial battery reading: %.1f%%\n", batteryPercent);
+
   return true;
+}
+
+void playBatteryAlert(BatteryLevel level) {
+  if (!spiffsReady) return; 
+  if (audio.isRunning()) return;
+
+  switch(level) {
+    case BATTERY_LEVEL_LOW:
+      audio.connecttoFS(SPIFFS, "/low_battery_alert.wav");
+      break;
+    case BATTERY_LEVEL_MEDIUM:
+      audio.connecttoFS(SPIFFS, "/medium_battery_alert.wav");
+      break;
+    case BATTERY_LEVEL_HIGH:
+      audio.connecttoFS(SPIFFS, "/high_battery_alert.wav");
+      break;
+    case BATTERY_LEVEL_CRITICAL:
+      audio.connecttoFS(SPIFFS, "/critical_battery_alert.wav");
+      break;
+  }
+
 }
 
 // Periodic reading of battery SOC
 void checkBattery() {
-  if (!batteryGaugeActive) return; // Skip if battery gauge failed to initialize
+   if (!batteryGaugeActive) return;
 
-  unsigned long now = millis();
-  if (now - lastBatteryCheck < BATTERY_CHECK_INTERVAL_MS) return;
-  lastBatteryCheck = now; 
+   unsigned long now = millis();
+    if (now - lastBatteryCheck < BATTERY_CHECK_INTERVAL_MS) return; // not time yet
+    lastBatteryCheck = now;
 
-  batteryPercent = lipo.getSOC();
-  lowBatteryAlert = (batteryPercent <= LOW_BATTERY_PERCENT);
-  Serial.printf("Battery: %.1f%% | Voltage: %.2f V | Low Battery Alert: %s\n", batteryPercent, lipo.getVoltage(), lowBatteryAlert ? "YES" : "NO");
+    batteryPercent = lipo.getSOC();
+    BatteryLevel currentLevel = getBatteryLevel(batteryPercent);
 
-  if (lowBatteryAlert && !lowBatteryAlertPlayed) {
-    playLowBatteryAlert();
-    lowBatteryAlertPlayed = true;
-  } else if (!lowBatteryAlert) {
-    lowBatteryAlertPlayed = false; // reset if battery is no longer low
-  }
-}
+    Serial.printf("Battery: %.1f%% | Voltage: %.2f V | Level: %s\n",
+                batteryPercent, lipo.getVoltage(),
+                currentLevel == BATTERY_LEVEL_HIGH ? "HIGH" :
+                currentLevel == BATTERY_LEVEL_MEDIUM ? "MEDIUM" : 
+                currentLevel == BATTERY_LEVEL_LOW ? "LOW" : "CRITICAL");
+    
+    setBatteryLED(currentLevel); // Update LED based on current battery level
 
-void playLowBatteryAlert() {
-  if (!spiffsReady) {
-    Serial.println("SPIFFS not ready. Cannot play low battery alert.");
-    return;
-  }
-  if (audio.isRunning()) return; // Don't interrupt if audio is already playing
-  audio.connecttoFS(SPIFFS, "/low_battery_alert.wav"); // Ensure this file exists in SPI
-
+    if (currentLevel != lastBatteryLevel) {
+      playBatteryAlert(currentLevel);
+      lastBatteryLevel = currentLevel;
+    }
 }
 
 void setup() {
@@ -311,6 +377,13 @@ void setup() {
   delay(1000); // Allow time for Serial to initialize
   Serial.println("VibraVis starting...");
   Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN);
+
+  //LED pins for Battery reading
+  pinMode(LED_RED_PIN, OUTPUT);
+  pinMode(LED_GREEN_PIN, OUTPUT);
+  pinMode(LED_BLUE_PIN, OUTPUT);
+  setBatteryLED(BATTERY_LEVEL_HIGH); // Start with green LED
+
   //for testing
   Wire.beginTransmission(TCA9548A_1_ADDRESS);
   bool mux1Present = (Wire.endTransmission() == 0);
@@ -328,7 +401,7 @@ void setup() {
   if (!initMotors()) {
     Serial.println("WARNING: one or more motors failed to init.");
   }
-  if (!initBatteryGuage()) {
+  if (!initBatteryGauge()) {
     Serial.println("WARNING: Battery gauge failed to init.");
   }
   if (!SPIFFS.begin(true)) {
@@ -349,12 +422,6 @@ void setup() {
   Serial.println("VibraVis ready.");
 }
 void loop() {
-  audio.loop(); // process audio playback
-
-  if(spiffsReady && !audio.isRunning()) {
-    audio.connecttoFS(SPIFFS, "/test_16bit_mono.wav");
-  }
-
   unsigned long now = millis();
   if (now - lastPollTime >= SENSOR_POLL_INTERVAL_MS) {
     lastPollTime = now;
@@ -363,4 +430,5 @@ void loop() {
     // delay(5000); // small delay to avoid flooding the serial output
   }
   checkBattery();
+  audio.loop(); // process audio playback
 }
