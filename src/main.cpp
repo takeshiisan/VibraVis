@@ -188,23 +188,6 @@ uint8_t sensorToMotorMask(int sensorIndex) {
   }
 }
 
-/*
-EFFECT ID MAPPING: For simplicity, we can use the same effect ID for all motors. 
-(WILL NOT BE USED FOR NOW).
-*/
-
-// void triggerMotor(uint8_t motorMask, uint8_t effectId) {
-//   for(int i = 0; i < MOTOR_COUNT; i++) {
-//     if(motorMask & (1 << i)) {
-//       selectMuxChannel(motorMuxMappings[i].muxAddress, motorMuxMappings[i].channel);
-//       motors[i].setWaveform(0, effectId); // set effect
-//       motors[i].setWaveform(1, 0); // end of sequence
-//       motors[i].go();
-//     }
-//   }
-// }
-
-
 // THEORETICALLY, we could use the DRV2605L's RTP mode to set a continuous vibration intensity based on distance.
 
 uint8_t distanceToAmplitude(uint16_t distanceMm) {
