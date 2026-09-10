@@ -73,8 +73,15 @@ static const struct DeviceMuxMapping motorMuxMappings[MOTOR_COUNT] = {
 #define RTP_MIN_AMPLITUDE 40
 
 //MAX17043
-#define LOW_BATTERY_PERCENT 15.0f // trigger for low battery warning bellow this %
+#define BATTERY_HIGH_THRESHOLD   75.0f // HIGH (green)
+#define BATTERY_MEDIUM_THRESHOLD 50.0f // MEDIUM (yellow)
+#define BATTERY_LOW_THRESHOLD    30.0f // LOW (red), anything bellow is critical 
 #define BATTERY_CHECK_INTERVAL_MS 10000 // check battery every 10 seconds
+
+// RGB LED (battery level indicator)
+#define LED_RED_PIN   4
+#define LED_GREEN_PIN 5
+#define LED_BLUE_PIN  6
 
 #endif // CONFIG_H
 
