@@ -79,9 +79,20 @@ static const struct DeviceMuxMapping motorMuxMappings[MOTOR_COUNT] = {
 #define BATTERY_CHECK_INTERVAL_MS 10000 // check battery every 10 seconds
 
 // RGB LED (battery level indicator)
-#define LED_RED_PIN   4
-#define LED_GREEN_PIN 5
-#define LED_BLUE_PIN  6
+#define LED_RED_PIN   19
+#define LED_GREEN_PIN 20
+#define LED_BLUE_PIN  21
+
+// Indicator WHITE LED
+#define WHITE_LED_PIN 7
+#define DOUBLE_CLICK_WINDOW_MS 400
+#define STROBE_INTERVAL_MS 200
+#define BUTTON_DEBOUNCE_MS 50
+
+// TACTILE BUTTON
+#define POWER_BUTTON 2
+#define LONG_PRESS_MS 2000
+#define LIGHT_BUTTON 1
 
 #endif // CONFIG_H
 

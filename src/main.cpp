@@ -22,9 +22,12 @@ Audio audio;
 float batteryPercent = 100.0f; 
 void playLowBatteryAlert();
 unsigned long lastBatteryCheck = 0;
-
 unsigned long lastMotorTrigger = 0;
 unsigned long lastPollTime = 0;
+bool lightIndicatorOn = false;
+
+unsigned long buttonPressStart = 0;
+bool buttonHeld = false;
  
 // Tracks previous distance/time per sensor, used to compute approach speed
 uint16_t previousDistance[SENSOR_COUNT]   = {0};
@@ -36,7 +39,31 @@ bool motorActive[MOTOR_COUNT] = {false};
 bool batteryGaugeActive = false;
 bool spiffsReady = false;
 
-bool mux2Present = false; 
+bool mux2Present = false;
+
+enum WhiteLedMode {
+  WHITE_LED_OFF,
+  WHITE_LED_SOLID,
+  WHITE_LED_STROBE
+};
+
+WhiteLedMode whiteLedMode = WHITE_LED_OFF; // starts led off
+
+unsigned long lastStrobeToggle = 0;
+bool strobeState = false;
+
+int lightButtonCount = 0;
+unsigned long lightButtonLastClickTime = 0;
+bool lightButtonPendingAction = false;
+
+enum BatteryLevel {
+  BATTERY_LEVEL_CRITICAL,
+  BATTERY_LEVEL_LOW,
+  BATTERY_LEVEL_MEDIUM,
+  BATTERY_LEVEL_HIGH
+};
+
+BatteryLevel lastBatteryLevel = BATTERY_LEVEL_HIGH; // Start assuming high battery till read cycle starts
 
 // Multiplexer channel select 
 void selectMuxChannel(uint8_t muxAddress, uint8_t channel) {
@@ -240,15 +267,28 @@ void processObstacles() {
   audio.loop();
 }
 
-enum BatteryLevel {
-  BATTERY_LEVEL_CRITICAL,
-  BATTERY_LEVEL_LOW,
-  BATTERY_LEVEL_MEDIUM,
-  BATTERY_LEVEL_HIGH
-};
+// White LED
+void onLightButtonSingleClick() {
+  if (whiteLedMode == WHITE_LED_SOLID) {
+    whiteLedMode = WHITE_LED_STROBE;
+  } else if (whiteLedMode == WHITE_LED_STROBE){
+    whiteLedMode = WHITE_LED_SOLID;
+  } else {
+    whiteLedMode = WHITE_LED_SOLID;
+  }
+  Serial.printf("White LED mode -> %s\n", 
+  whiteLedMode == WHITE_LED_SOLID ? "SOLID" : 
+  whiteLedMode == WHITE_LED_STROBE ? "STROBE" : "OFF");
+}
 
-BatteryLevel lastBatteryLevel = BATTERY_LEVEL_HIGH; // Start assuming high battery till read cycle starts
+void onLightButtonDoubleClick() {
+  whiteLedMode = WHITE_LED_OFF;
+  Serial.printf("White LED mode -> OFF");
+}
 
+
+
+//Battery Reading
 BatteryLevel getBatteryLevel(float batteryPercent) {
   if (batteryPercent >= BATTERY_HIGH_THRESHOLD) {
     return BATTERY_LEVEL_HIGH; // full charged
@@ -355,6 +395,31 @@ void checkBattery() {
     }
 }
 
+void enterDeepSleep() {
+  Serial.println("Shutting Down...");
+  updateMotorIntensities(0, 0);
+  
+  esp_sleep_enable_ext0_wakeup((gpio_num_t)POWER_BUTTON, 0);
+  esp_deep_sleep_start();
+
+}
+
+void checkPowerButton() {
+  bool pressed = (digitalRead(POWER_BUTTON) == LOW);
+
+  if (pressed && !buttonHeld) {
+    buttonPressStart = millis(); // press just started
+  }
+
+  if (pressed && buttonHeld) {
+    if (millis() - buttonPressStart >= LONG_PRESS_MS) {
+      enterDeepSleep(); // held long enough - shut down
+    }
+  }
+
+  buttonHeld = pressed;
+}
+
 void setup() {
   Serial.begin(115200);
   delay(1000); // Allow time for Serial to initialize
@@ -366,6 +431,8 @@ void setup() {
   pinMode(LED_GREEN_PIN, OUTPUT);
   pinMode(LED_BLUE_PIN, OUTPUT);
   setBatteryLED(BATTERY_LEVEL_HIGH); // Start with green LED
+  //Button
+  pinMode(POWER_BUTTON, INPUT_PULLUP);
 
   //for testing
   Wire.beginTransmission(TCA9548A_1_ADDRESS);
@@ -412,6 +479,7 @@ void loop() {
     // Serial.println("VibraVis is alive.");
     // delay(5000); // small delay to avoid flooding the serial output
   }
+  checkPowerButton();
   checkBattery();
   audio.loop(); // process audio playback
 }
