@@ -21,6 +21,20 @@ enum SensorPosition {
     SENSOR_COUNT
 };
 
+enum WhiteLedMode {
+  WHITE_LED_OFF,
+  WHITE_LED_SOLID,
+  WHITE_LED_STROBE
+};
+
+enum BatteryLevel {
+  BATTERY_LEVEL_CRITICAL,
+  BATTERY_LEVEL_LOW,
+  BATTERY_LEVEL_MEDIUM,
+  BATTERY_LEVEL_HIGH
+};
+
+
 struct DeviceMuxMapping {
     uint8_t muxAddress; // TCA9548A multiplexer address
     uint8_t channel;    // Channel on the multiplexer (0-7)
@@ -31,8 +45,8 @@ static const struct DeviceMuxMapping sensorMuxMappings[SENSOR_COUNT] = {
     {TCA9548A_1_ADDRESS, 0}, // SENSOR_LEFT_ARM SD0/SC0
     {TCA9548A_1_ADDRESS, 1}, // SENSOR_RIGHT_ARM SD1/SC1
     {TCA9548A_1_ADDRESS, 2}, // SENSOR_BRIDGE SD2/SC2
-    {TCA9548A_2_ADDRESS, 0}, // SENSOR_BOTTOM_LEFT SD0/SC0
-    {TCA9548A_2_ADDRESS, 1}  // SENSOR_BOTTOM_RIGHT SD1/SC1
+    {TCA9548A_1_ADDRESS, 3}, // SENSOR_BOTTOM_LEFT SD0/SC0
+    {TCA9548A_1_ADDRESS, 4}  // SENSOR_BOTTOM_RIGHT SD1/SC1
 };
 
 // VIBRATION MOTORS MAPPING (DRV2605L) 
@@ -47,9 +61,9 @@ enum MotorZone {
 #define DRV2605L_ADDRESS 0x5A
 
 static const struct DeviceMuxMapping motorMuxMappings[MOTOR_COUNT] = {
-    {TCA9548A_2_ADDRESS, 3}, // MOTOR_LEFT
-    {TCA9548A_2_ADDRESS, 4}, // MOTOR_CENTER
-    {TCA9548A_2_ADDRESS, 5}  // MOTOR_RIGHT
+    {TCA9548A_2_ADDRESS, 0}, // MOTOR_LEFT
+    {TCA9548A_2_ADDRESS, 1}, // MOTOR_CENTER
+    {TCA9548A_2_ADDRESS, 3}  // MOTOR_RIGHT
 };
 
 // Bitmasks for triggering multiple motors simultaneously (if needed)
@@ -79,9 +93,9 @@ static const struct DeviceMuxMapping motorMuxMappings[MOTOR_COUNT] = {
 #define BATTERY_CHECK_INTERVAL_MS 10000 // check battery every 10 seconds
 
 // RGB LED (battery level indicator)
-#define LED_RED_PIN   19
-#define LED_GREEN_PIN 20
-#define LED_BLUE_PIN  21
+#define LED_RED_PIN   38
+#define LED_GREEN_PIN 39
+#define LED_BLUE_PIN  40
 
 // Indicator WHITE LED
 #define WHITE_LED_PIN 7

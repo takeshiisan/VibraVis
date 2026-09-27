@@ -12,6 +12,7 @@
 #include <SPIFFS.h>
 #include "Audio.h"
 #include "config.h"
+#include "driver/rtc_io.h"
 
 Adafruit_VL53L7CX tofsensors[SENSOR_COUNT];
 Adafruit_DRV2605 motors[MOTOR_COUNT];
@@ -20,11 +21,8 @@ SFE_MAX1704X lipo;
 Audio audio;
 
 float batteryPercent = 100.0f; 
-void playLowBatteryAlert();
 unsigned long lastBatteryCheck = 0;
-unsigned long lastMotorTrigger = 0;
 unsigned long lastPollTime = 0;
-bool lightIndicatorOn = false;
 
 unsigned long buttonPressStart = 0;
 bool buttonHeld = false;
@@ -41,28 +39,13 @@ bool spiffsReady = false;
 
 bool mux2Present = false;
 
-enum WhiteLedMode {
-  WHITE_LED_OFF,
-  WHITE_LED_SOLID,
-  WHITE_LED_STROBE
-};
-
-WhiteLedMode whiteLedMode = WHITE_LED_OFF; // starts led off
-
 unsigned long lastStrobeToggle = 0;
 bool strobeState = false;
 
-int lightButtonCount = 0;
 unsigned long lightButtonLastClickTime = 0;
 bool lightButtonPendingAction = false;
 
-enum BatteryLevel {
-  BATTERY_LEVEL_CRITICAL,
-  BATTERY_LEVEL_LOW,
-  BATTERY_LEVEL_MEDIUM,
-  BATTERY_LEVEL_HIGH
-};
-
+WhiteLedMode whiteLedMode = WHITE_LED_OFF; // starts led off
 BatteryLevel lastBatteryLevel = BATTERY_LEVEL_HIGH; // Start assuming high battery till read cycle starts
 
 // Multiplexer channel select 
@@ -286,8 +269,61 @@ void onLightButtonDoubleClick() {
   Serial.printf("White LED mode -> OFF");
 }
 
+void updateWhiteLed () {
+  switch (whiteLedMode) {
+    case WHITE_LED_SOLID:
+    digitalWrite(WHITE_LED_PIN, HIGH);
+    break;
+    case WHITE_LED_OFF:
+    digitalWrite(WHITE_LED_PIN, LOW);
+    break;
+    case WHITE_LED_STROBE:
+    if (millis() - lastStrobeToggle >= STROBE_INTERVAL_MS) {
+      lastStrobeToggle = millis();
+      strobeState = !strobeState;
+      digitalWrite(WHITE_LED_PIN, strobeState ? HIGH : LOW);
+    }
+    break;
+    }
+  } 
 
+void checkLightButton() {
+  static bool lastRawState = HIGH;
+  static bool debounceState = HIGH;
+  static unsigned long lastDebounceTime = 0;
 
+  bool currentRawState = digitalRead(LIGHT_BUTTON);
+
+  if (currentRawState != lastRawState) {
+    lastDebounceTime = millis(); // raw reading just changed - restart the debounce timer
+  }
+  lastRawState = currentRawState;  
+
+  if (millis() - lastDebounceTime > BUTTON_DEBOUNCE_MS) {
+    // raw reading has been stable long enough - accept it as real
+    if (currentRawState != debounceState) {
+      bool previousDebounceState = debounceState;
+      debounceState = currentRawState;
+
+      if (debounceState == LOW && previousDebounceState == HIGH) { // confirmed press edge
+        unsigned long now = millis();
+        if (now - lightButtonLastClickTime <= DOUBLE_CLICK_WINDOW_MS) {
+          lightButtonPendingAction = false;
+          onLightButtonDoubleClick();
+        } else {
+          lightButtonLastClickTime = now;
+          lightButtonPendingAction = true;
+        }
+      }
+    }
+  }
+  // Double-click window expired with no 2nd click -> resolve as single click
+  if (lightButtonPendingAction && (millis() - lightButtonLastClickTime > DOUBLE_CLICK_WINDOW_MS)) {
+  lightButtonPendingAction = false;
+  onLightButtonSingleClick();
+  }
+} 
+  
 //Battery Reading
 BatteryLevel getBatteryLevel(float batteryPercent) {
   if (batteryPercent >= BATTERY_HIGH_THRESHOLD) {
@@ -398,8 +434,21 @@ void checkBattery() {
 void enterDeepSleep() {
   Serial.println("Shutting Down...");
   updateMotorIntensities(0, 0);
+
+  // Wait for button release so low signal doesn't instantly trigger ext0 wake
+  while (digitalRead(POWER_BUTTON) == LOW) {
+    delay(10);
+  }
+  delay(100);
+
+  rtc_gpio_pullup_en((gpio_num_t)POWER_BUTTON);
+  rtc_gpio_pulldown_dis((gpio_num_t)POWER_BUTTON);
   
-  esp_sleep_enable_ext0_wakeup((gpio_num_t)POWER_BUTTON, 0);
+  esp_err_t wakeResult = esp_sleep_enable_ext0_wakeup((gpio_num_t)POWER_BUTTON, 0);
+  if (wakeResult != ESP_OK) {
+    Serial.println("WARNING: failed to configure wake source - aborting sleep.");
+    return;
+  }
   esp_deep_sleep_start();
 
 }
@@ -421,6 +470,8 @@ void checkPowerButton() {
 }
 
 void setup() {
+  rtc_gpio_deinit((gpio_num_t)POWER_BUTTON); // release RTC IO hold from previous wake, restore normal digital GPIO mode
+
   Serial.begin(115200);
   delay(1000); // Allow time for Serial to initialize
   Serial.println("VibraVis starting...");
@@ -430,9 +481,12 @@ void setup() {
   pinMode(LED_RED_PIN, OUTPUT);
   pinMode(LED_GREEN_PIN, OUTPUT);
   pinMode(LED_BLUE_PIN, OUTPUT);
+  pinMode(WHITE_LED_PIN, OUTPUT);
+  pinMode(LIGHT_BUTTON, INPUT_PULLUP);
   setBatteryLED(BATTERY_LEVEL_HIGH); // Start with green LED
   //Button
   pinMode(POWER_BUTTON, INPUT_PULLUP);
+  whiteLedMode = WHITE_LED_SOLID;
 
   //for testing
   Wire.beginTransmission(TCA9548A_1_ADDRESS);
@@ -481,5 +535,7 @@ void loop() {
   }
   checkPowerButton();
   checkBattery();
+  checkLightButton();
+  updateWhiteLed();
   audio.loop(); // process audio playback
 }
