@@ -62,8 +62,8 @@ enum MotorZone {
 
 static const struct DeviceMuxMapping motorMuxMappings[MOTOR_COUNT] = {
     {TCA9548A_2_ADDRESS, 0}, // MOTOR_LEFT
-    {TCA9548A_2_ADDRESS, 1}, // MOTOR_CENTER
-    {TCA9548A_2_ADDRESS, 3}  // MOTOR_RIGHT
+    {TCA9548A_2_ADDRESS, 2}, // MOTOR_CENTER
+    {TCA9548A_2_ADDRESS, 4}  // MOTOR_RIGHT
 };
 
 // Bitmasks for triggering multiple motors simultaneously (if needed)
