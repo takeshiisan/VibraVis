@@ -74,7 +74,7 @@ bool initSensors() {
     selectMuxChannel(sensorMuxMappings[i].muxAddress, sensorMuxMappings[i].channel);
     delay(5);
 
-    if (!tofsensors[i].begin(VL53L7CX_DEFAULT_ADDRESS, &Wire, 400000)) {
+    if (!tofsensors[i].begin(TCA9548A_1_ADDRESS, &Wire, 400000)) {
       Serial.printf("Failed to init sensor %d\n", i);
       Serial.flush(); 
       allOk = false;
