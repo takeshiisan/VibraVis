@@ -14,7 +14,7 @@
 #include "config.h"
 #include "driver/rtc_io.h"
 
-Adafruit_VL53L7CX tofsensors[SENSOR_COUNT];
+Adafruit_VL53L7CX tofSensor;
 Adafruit_DRV2605 motors[MOTOR_COUNT];
 VL53L7CX_ResultsData results;
 SFE_MAX1704X lipo;
@@ -28,12 +28,12 @@ unsigned long buttonPressStart = 0;
 bool buttonHeld = false;
  
 // Tracks previous distance/time per sensor, used to compute approach speed
-uint16_t previousDistance[SENSOR_COUNT]   = {0};
-unsigned long previousReadTime[SENSOR_COUNT] = {0};
+uint16_t previousZoneDistance[ZONE_GROUP_COUNT]   = {0};
+unsigned long previousZoneReadTime[ZONE_GROUP_COUNT] = {0};
 
 //Track successfully initialized sensors, motors, battery guage, and audio system
-bool sensorActive[SENSOR_COUNT] = {false};
-bool motorActive[MOTOR_COUNT] = {false};
+bool sensorActive = {false};
+bool motorActive[MOTOR_COUNT] = {false, false};
 bool batteryGaugeActive = false;
 bool spiffsReady = false;
 
@@ -48,206 +48,169 @@ bool lightButtonPendingAction = false;
 WhiteLedMode whiteLedMode = WHITE_LED_OFF; // starts led off
 BatteryLevel lastBatteryLevel = BATTERY_LEVEL_HIGH; // Start assuming high battery till read cycle starts
 
-// Multiplexer channel select 
-void selectMuxChannel(uint8_t muxAddress, uint8_t channel) {
-  Wire.beginTransmission(TCA9548A_1_ADDRESS); 
-  Wire.write(0x00); // disable all channels
-  Wire.endTransmission();
-
-   if (mux2Present) {
-    Wire.beginTransmission(TCA9548A_2_ADDRESS);
-    Wire.write(0x00);
-    Wire.endTransmission();
-  }
-
-  Wire.beginTransmission(muxAddress); 
-  Wire.write(1 << channel); // enable the desired channel
-  Wire.endTransmission();
-
-  Serial.printf("[MUX] Active -> addr: 0x%02X, channel: %d\n", muxAddress, channel); //debug printing, to be commented out once done
-}
+TwoWire Wire1 = TwoWire(1); // ESP32-S3's second hardware I2C bus
 
 // Initialize all 5 ToF sensors through their mux channels 
-bool initSensors() {
-  bool allOk = true;
-  for (int i = 0; i < SENSOR_COUNT; i++) {
-    selectMuxChannel(sensorMuxMappings[i].muxAddress, sensorMuxMappings[i].channel);
-    delay(5);
-
-    if (!tofsensors[i].begin(VL53L7CX_DEFAULT_ADDRESS, &Wire, 400000)) {
-      Serial.printf("Failed to init sensor %d\n", i);
-      Serial.flush(); 
-      allOk = false;
-      continue;
-    }
-    tofsensors[i].setResolution(64); // 8x8 resolution
-    tofsensors[i].setRangingFrequency(30); // 30HZ
-    tofsensors[i].startRanging();
-
-    sensorActive[i] = true;
-
-    Serial.printf("Sensor %d initialized successfully.\n", i);
-    Serial.flush();
+bool initSensor() {
+  if (!tofSensor.begin(VL53L7CX_DEFAULT_ADDRESS, &Wire, 400000)) {
+    Serial.println("Failed to init sensor");
+    return false;
   }
-  return allOk;
+  tofSensor.setResolution(64);
+  tofSensor.setRangingFrequency(30);
+  tofSensor.startRanging();
+  sensorActive = true;
+  Serial.println("Sensor initialized successfully.");
+  return true;
 }
 
 // Initialize the 3 DRV2605L motor drivers 
 bool initMotors() {
   bool allOk = true;
-  for (int i = 0; i < MOTOR_COUNT; i++) {
-    selectMuxChannel(motorMuxMappings[i].muxAddress, motorMuxMappings[i].channel);
-    delay(5);
 
-    if(motors[i].begin()) {
-      motors[i].selectLibrary(1); // select ERM library
-      motors[i].setMode(DRV2605_MODE_REALTIME); // RTP MODE
-      motors[i].setRealtimeValue(0); // start silent
-      motorActive[i] = true;
-      Serial.printf("Motor %d initialized successfully.\n", i);
-    } else {
-      Serial.printf("Failed to init motor %d\n", i);
-      allOk = false;
-    }
+  if (!motors[MOTOR_LEFT].begin(&Wire)) { // shares bus 0 with the sensor - different address, no conflict
+    Serial.println("Failed to init left motor");
+    allOk = false;
+  } else {
+    motors[MOTOR_LEFT].selectLibrary(1);
+    motors[MOTOR_LEFT].setMode(DRV2605_MODE_REALTIME);
+    motors[MOTOR_LEFT].setRealtimeValue(0);
+    motorActive[MOTOR_LEFT] = true;
+    Serial.println("Left motor initialized successfully.");
   }
+
+  if (!motors[MOTOR_RIGHT].begin(&Wire1)) { // its own separate bus
+    Serial.println("Failed to init right motor");
+    allOk = false;
+  } else {
+    motors[MOTOR_RIGHT].selectLibrary(1);
+    motors[MOTOR_RIGHT].setMode(DRV2605_MODE_REALTIME);
+    motors[MOTOR_RIGHT].setRealtimeValue(0);
+    motorActive[MOTOR_RIGHT] = true;
+    Serial.println("Right motor initialized successfully.");
+  }
+
   return allOk;
 }
 
 // Read one sensor's minimum in-range distance
 // Returns 0 if no valid reading or sensor not ready.
-uint16_t readSensorMinDistance(int sensorIndex) {
-  // CRITICAL: Skip this sensor if it failed to initialize
-  if (!sensorActive[sensorIndex]) {
-      return 0; 
-  }
-  selectMuxChannel(sensorMuxMappings[sensorIndex].muxAddress, sensorMuxMappings[sensorIndex].channel);
-  
-  if (tofsensors[sensorIndex].isDataReady()) {   
-   if(!tofsensors[sensorIndex].getRangingData(&results)) {
-     Serial.printf("Failed to get ranging data from sensor %d\n", sensorIndex);
-     return 0;
-   }
-   
-   uint16_t minDistance = 65535; // max uint16_t
-   // Scan all 64 zones for closest target
-  for(int j = 0; j < 64; j++) {
-    //Status indicating the measurement validity (5 & 9 means ranging OK
-      if(results.target_status[j] == 5 || results.target_status[j] == 9) {
-        if(results.distance_mm[j] > 0 && results.distance_mm[j] < minDistance) {
-          minDistance = results.distance_mm[j];
-        }
-      }
+// Splits the sensor's 64 zones into LEFT/CENTER/RIGHT column groups,
+// finding the closest valid reading within each group.
+bool readZoneDistances(uint16_t distances[ZONE_GROUP_COUNT]) {
+  if (!sensorActive || !tofSensor.isDataReady()) return false;
+
+  VL53L7CX_ResultsData results;
+  if (!tofSensor.getRangingData(&results)) return false;
+
+  uint16_t leftMin = 65535, centerMin = 65535, rightMin = 65535;
+
+  for (int zone = 0; zone < 64; zone++) {
+    uint8_t status = results.target_status[zone];
+    if (status != 5 && status != 9) continue;
+    uint16_t d = results.distance_mm[zone];
+    if (d == 0) continue;
+
+    // ASSUMPTION: zones are row-major, column = zone % 8. VERIFY this
+    // against your actual sensor mounting/orientation once hardware is
+    // running - some mountings mirror or rotate this indexing.
+    int col = zone % ZONE_GRID_SIZE;
+
+    if (col <= ZONE_LEFT_MAX_COL) {
+      if (d < leftMin) leftMin = d;
+    } else if (col >= ZONE_RIGHT_MIN_COL) {
+      if (d < rightMin) rightMin = d;
+    } else {
+      if (d < centerMin) centerMin = d;
     }
-  return (minDistance == 65535) ? 0 : minDistance;
   }
-  return 0;
+
+  distances[ZONE_LEFT]   = (leftMin == 65535) ? 0 : leftMin;
+  distances[ZONE_CENTER] = (centerMin == 65535) ? 0 : centerMin;
+  distances[ZONE_RIGHT]  = (rightMin == 65535) ? 0 : rightMin;
+  return true;
 }
 
+
 // Calculate approach speed (mm/s). Positive = approaching. 
-float calculateApproachSpeed(int sensorIndex, uint16_t currentDistance) {
+float calculateApproachSpeed(int zoneIndex, uint16_t currentDistance) {
   unsigned long now = millis();
   float speed = 0;
- 
-  if (previousDistance[sensorIndex] > 0 && previousReadTime[sensorIndex] > 0) {
-    float deltaTimeSec = (now - previousReadTime[sensorIndex]) / 1000.0f;
+  if (previousZoneDistance[zoneIndex] > 0 && previousZoneReadTime[zoneIndex] > 0) {
+    float deltaTimeSec = (now - previousZoneReadTime[zoneIndex]) / 1000.0f;
     if (deltaTimeSec > 0) {
-      speed = (previousDistance[sensorIndex] - currentDistance) / deltaTimeSec;
+      speed = (previousZoneDistance[zoneIndex] - currentDistance) / deltaTimeSec;
     }
   }
-  previousDistance[sensorIndex] = currentDistance;
-  previousReadTime[sensorIndex] = now;
+  previousZoneDistance[zoneIndex] = currentDistance;
+  previousZoneReadTime[zoneIndex] = now;
   return speed;
 }
 
-// ---------- Select ONE priority obstacle per cycle ----------
-// Rule: any obstacle within IMMEDIATE_DANGER_MM always wins (nearest of
-// those, if multiple). Otherwise, the fastest-approaching obstacle wins.
-// Returns sensor index, or -1 if nothing needs an alert this cycle.
-int selectPriorityObstacle(uint16_t distances[SENSOR_COUNT], float speeds[SENSOR_COUNT]) {
-  int immediateIndex = -1;
-  int fastestIndex = -1;
+int selectPriorityZone(uint16_t distances[ZONE_GROUP_COUNT], float speeds[ZONE_GROUP_COUNT]) {
+  int immediateIndex = -1, fastestIndex = -1;
   float fastestSpeed = 0;
- 
-  for (int i = 0; i < SENSOR_COUNT; i++) {
-    if (distances[i] == 0) continue; // no valid reading this cycle
- 
+
+  for (int i = 0; i < ZONE_GROUP_COUNT; i++) {
+    if (distances[i] == 0) continue;
     if (distances[i] < IMMEDIATE_DANGER_MM) {
-      if (immediateIndex == -1 || distances[i] < distances[immediateIndex]) {
-        immediateIndex = i;
-      }
+      if (immediateIndex == -1 || distances[i] < distances[immediateIndex]) immediateIndex = i;
     }
- 
-    if (speeds[i] > fastestSpeed) {
-      fastestSpeed = speeds[i];
-      fastestIndex = i;
-    }
+    if (speeds[i] > fastestSpeed) { fastestSpeed = speeds[i]; fastestIndex = i; }
   }
 
-  if (immediateIndex != -1) return immediateIndex; // safety threshold overrides
-  return fastestIndex;                              // otherwise, fastest wins
-}
- 
-// Returns a bitmask so multiple motors can be triggered simultaneously if needed.
-uint8_t sensorToMotorMask(int sensorIndex) {
-  switch(sensorIndex) {
-    case SENSOR_LEFT_ARM: return MASK_LEFT;
-    case SENSOR_RIGHT_ARM: return MASK_RIGHT;
-    case SENSOR_BOTTOM_LEFT: return MASK_LEFT | MASK_CENTER; // both left and center motors
-    case SENSOR_BOTTOM_RIGHT: return MASK_RIGHT | MASK_CENTER; // both right and center motors
-    case SENSOR_BRIDGE: default: return MASK_CENTER; // bridge sensor triggers center motor
-  }
+  if (immediateIndex != -1) return immediateIndex;
+  return fastestIndex;
 }
 
+uint8_t zoneToMotorMask(int zoneIndex) {
+  switch (zoneIndex) {
+    case ZONE_LEFT:  return MASK_LEFT_MOTOR;
+    case ZONE_RIGHT: return MASK_RIGHT_MOTOR;
+    case ZONE_CENTER:
+    default:         return MASK_BOTH_MOTORS;
+  }
+}
 // THEORETICALLY, we could use the DRV2605L's RTP mode to set a continuous vibration intensity based on distance.
-
 uint8_t distanceToAmplitude(uint16_t distanceMm) {
-  if(distanceMm == 0 || distanceMm > OBSTACLE_DETECTION_THRESHOLD_MM) {
-    return 0; // nothing in range = no vibration
-  }
-  if (distanceMm < IMMEDIATE_DANGER_MM) {
-    return RTP_MAX_AMPLITUDE; // immediate danger = max vibration
-  }
-  float ration = (float)(OBSTACLE_DETECTION_THRESHOLD_MM - distanceMm) / (OBSTACLE_DETECTION_THRESHOLD_MM - IMMEDIATE_DANGER_MM);
-  return RTP_MIN_AMPLITUDE + (uint8_t)(ration * (RTP_MAX_AMPLITUDE - RTP_MIN_AMPLITUDE));
+  if (distanceMm == 0 || distanceMm > OBSTACLE_DETECTION_THRESHOLD_MM) return 0;
+  if (distanceMm < IMMEDIATE_DANGER_MM) return RTP_MAX_AMPLITUDE;
+  float ratio = (float)(OBSTACLE_DETECTION_THRESHOLD_MM - distanceMm) /
+                (OBSTACLE_DETECTION_THRESHOLD_MM - IMMEDIATE_DANGER_MM);
+  return RTP_MIN_AMPLITUDE + (uint8_t)(ratio * (RTP_MAX_AMPLITUDE - RTP_MIN_AMPLITUDE));
 }
 
 void updateMotorIntensities(uint8_t motorMask, uint8_t amplitude) {
-  for(int i = 0; i < MOTOR_COUNT; i++) {
-      if(!motorActive[i]) continue; // Skip if motor failed to initialize
-      selectMuxChannel(motorMuxMappings[i].muxAddress, motorMuxMappings[i].channel);
-      motors[i].setRealtimeValue((motorMask & (1 << i)) ? amplitude : 0); // set amplitude or silence
+  if (motorActive[MOTOR_LEFT]) {
+    motors[MOTOR_LEFT].setRealtimeValue((motorMask & MASK_LEFT_MOTOR) ? amplitude : 0);
+  }
+  if (motorActive[MOTOR_RIGHT]) {
+    motors[MOTOR_RIGHT].setRealtimeValue((motorMask & MASK_RIGHT_MOTOR) ? amplitude : 0);
   }
 }
 
 void processObstacles() {
-  uint16_t distances[SENSOR_COUNT] = {0};
-  float speeds[SENSOR_COUNT] = {0};
+  uint16_t distances[ZONE_GROUP_COUNT] = {0, 0, 0};
+  float speeds[ZONE_GROUP_COUNT] = {0, 0, 0};
 
-  // Gather all sensor data
-  for (int i = 0; i < SENSOR_COUNT; i++) {
-    distances[i] = readSensorMinDistance(i);
-    speeds[i] = (distances[i] > 0) ? calculateApproachSpeed(i, distances[i]) : 0;
-
-    // ADDED: keeps audio buffer full during I2C transfers
-    audio.loop();
+  if (readZoneDistances(distances)) {
+    for (int i = 0; i < ZONE_GROUP_COUNT; i++) {
+      speeds[i] = (distances[i] > 0) ? calculateApproachSpeed(i, distances[i]) : 0;
+    }
   }
 
-  // Decide priority obstacle
-  int priorityIndex = selectPriorityObstacle(distances, speeds);
-
-  if (priorityIndex == -1) {
-    updateMotorIntensities(0,0);
-    return; // no alert needed
+  int priorityZone = selectPriorityZone(distances, speeds);
+  if (priorityZone == -1) {
+    updateMotorIntensities(0, 0);
+    return;
   }
 
-  uint8_t mask = sensorToMotorMask(priorityIndex);
-  uint8_t amplitude = distanceToAmplitude(distances[priorityIndex]);
+  uint8_t mask = zoneToMotorMask(priorityZone);
+  uint8_t amplitude = distanceToAmplitude(distances[priorityZone]);
   updateMotorIntensities(mask, amplitude);
 
-  Serial.printf("ALERT! Sensor %d | Dist: %d mm | Speed: %.1f mm/s | Amplitude: %d\n", priorityIndex, distances[priorityIndex], speeds[priorityIndex], amplitude);
-  
-  // KEPT: processes audio during regular loop iterations
-  audio.loop();
+  Serial.printf("ALERT! Zone %d | Dist: %d mm | Amplitude: %d\n",
+                priorityZone, distances[priorityZone], amplitude);
 }
 
 // White LED
@@ -488,18 +451,12 @@ void setup() {
   pinMode(POWER_BUTTON, INPUT_PULLUP);
   whiteLedMode = WHITE_LED_SOLID;
 
-  //for testing
-  Wire.beginTransmission(TCA9548A_1_ADDRESS);
-  bool mux1Present = (Wire.endTransmission() == 0);
-  Serial.printf("MUX1 (0x70) present: %s\n", mux1Present ? "YES" : "NO");
-
-  Wire.beginTransmission(TCA9548A_2_ADDRESS);
-  mux2Present = (Wire.endTransmission() == 0); // Check if second mux is present
-  Serial.printf("MUX2 present: %s\n", mux2Present ? "YES" : "NO");
+  Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN);
+  Wire1.begin(I2C_SDA_PIN2, I2C_SCL_PIN2);
  
   Serial.println("VibraVis booting...");  
  
-  if (!initSensors()) {
+  if (!initSensor()) {
     Serial.println("WARNING: one or more sensors failed to init.");
   }
   if (!initMotors()) {
