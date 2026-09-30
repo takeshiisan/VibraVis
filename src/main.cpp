@@ -48,7 +48,7 @@ bool lightButtonPendingAction = false;
 WhiteLedMode whiteLedMode = WHITE_LED_OFF; // starts led off
 BatteryLevel lastBatteryLevel = BATTERY_LEVEL_HIGH; // Start assuming high battery till read cycle starts
 
-TwoWire Wire1 = TwoWire(1); // ESP32-S3's second hardware I2C bus
+// TwoWire Wire1 = TwoWire(1); 
 
 // Initialize all 5 ToF sensors through their mux channels 
 bool initSensor() {
